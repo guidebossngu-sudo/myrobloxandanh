@@ -37,30 +37,30 @@ jobs:
       - name: Inject Variables and Build EXE
         shell: powershell
         run: |
-          # 1. Tìm file app_client.py trong thư mục gốc hoặc trong my-roblox-builder/
+          # 1. Xác định đường dẫn file app_client.py
           $targetFile = "app_client.py"
           if (-not (Test-Path $targetFile)) {
               if (Test-Path "my-roblox-builder/app_client.py") {
                   $targetFile = "my-roblox-builder/app_client.py"
               } else {
-                  Write-Error "Không tìm thấy file app_client.py!"
+                  Write-Error "Lỗi: Không tìm thấy file app_client.py ở thư mục gốc hoặc trong my-roblox-builder/!"
                   exit 1
               }
           }
 
-          # 2. Đọc nội dung file client gốc
+          # 2. Đọc mã nguồn file app_client.py
           $code = Get-Content $targetFile -Raw -Encoding UTF8
 
-          # 3. Thay thế các thông số được truyền từ Web
+          # 3. Thay thế các biến từ giao diện Web
           $code = $code -replace 'APP_PASSWORD\s*=\s*".*?"', 'APP_PASSWORD = "${{ github.event.inputs.password }}"'
           $code = $code -replace 'DOWNLOAD_LINK\s*=\s*".*?"', 'DOWNLOAD_LINK = "${{ github.event.inputs.download_link }}"'
-          $code = $code -replace 'LOOP_COUNT\s*=\s*\d+', 'LOOP_COUNT = ${{ github.event.inputs.loop }}'
+          $code = $code -replace 'LOOP_COUNT\s*=\s*"?\d+"?', 'LOOP_COUNT = ${{ github.event.inputs.loop }}'
 
-          # 4. Tạo file tạm app_client_ready.py trên máy ảo
+          # 4. Ghi nội dung ra file tạm app_client_ready.py
           Set-Content -Path "app_client_ready.py" -Value $code -Encoding UTF8
 
-          # 5. Đóng gói thành file EXE bằng PyInstaller (dùng --noconsole để ẩn cửa sổ CMD)
-          pyinstaller --onefile --noconsole --name "RobloxAnDanh_MadeByKhoa" app_client_ready.py
+          # 5. Đóng gói thành file .EXE có hiển thị cửa sổ CMD (Đã bỏ --noconsole)
+          pyinstaller --onefile --name "RobloxAnDanh_MadeByKhoa" app_client_ready.py
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
