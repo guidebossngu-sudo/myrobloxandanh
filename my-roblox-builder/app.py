@@ -7,9 +7,9 @@ import zipfile
 
 app = Flask(__name__)
 
-# ĐIỀN ĐÚNG USERNAME VÀ REPO GITHUB CỦA BẠN VÀO ĐÂY (VD: "khoa/roblox-builder")
+# Thông tin Repository và Token GitHub
 GITHUB_REPO = "guidebossngu-sudo/myrobloxandanh"
-GITHUB_TOKEN = os.getenv("GH_TOKEN")  # Sẽ lấy từ Environment Variable trên Render
+GITHUB_TOKEN = os.getenv("GH_TOKEN")  # Lấy từ Environment Variables trên Render/Koyeb
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -55,18 +55,19 @@ def index():
 
 @app.route('/generate', methods=['POST'])
 def generate():
+    if not GITHUB_TOKEN:
+        return "Lỗi Server: Chưa cấu hình biến GH_TOKEN trên Render!", 500
+
     password = request.form.get('password')
     download_link = request.form.get('download_link')
     loop_count = request.form.get('loop')
     build_id = str(uuid.uuid4())[:8]
 
     headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
+        "Authorization": f"Bearer {GITHUB_TOKEN.strip()}",
         "Accept": "application/vnd.github.v3+json"
     }
 
-    # 1. Gửi lệnh yêu cầu GitHub Actions bắt đầu build EXE
-    dispatch_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/my-roblox-builder%2F.github%2Fworkflows%2Fbuild.yml/dispatches"
     payload = {
         "ref": "main",
         "inputs": {
@@ -76,15 +77,30 @@ def generate():
             "build_id": build_id
         }
     }
-    
-    res = requests.post(dispatch_url, json=payload, headers=headers)
-    if res.status_code != 204:
-        return f"Lỗi khởi chạy build trên GitHub: {res.text}", 500
 
-    # 2. Web ngồi chờ GitHub build xong (khoảng 1 - 1.5 phút)
+    # Thử gửi request qua 2 đường dẫn (thư mục gốc hoặc trong my-roblox-builder)
+    workflow_paths = [
+        "build.yml",
+        "my-roblox-builder%2F.github%2Fworkflows%2Fbuild.yml"
+    ]
+
+    res = None
+    success = False
+
+    for wf_path in workflow_paths:
+        dispatch_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{wf_path}/dispatches"
+        res = requests.post(dispatch_url, json=payload, headers=headers)
+        if res.status_code == 204:
+            success = True
+            break
+
+    if not success and res is not None:
+        return f"Lỗi GitHub API (Mã {res.status_code}): {res.text}", 500
+
+    # 2. Ngồi chờ GitHub Actions build xong (tối đa 2.5 phút)
     artifact_name = f"exe-{build_id}"
     artifact_url = None
-    
+
     for _ in range(30):
         time.sleep(5)
         artifacts_res = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/actions/artifacts", headers=headers)
@@ -98,9 +114,9 @@ def generate():
             break
 
     if not artifact_url:
-        return "Quá thời gian chờ tạo file EXE!", 500
+        return "Quá thời gian chờ tạo file EXE trên GitHub!", 500
 
-    # 3. Tải file ZIP từ GitHub về Web Server, giải nén và trả file .EXE cho người dùng
+    # 3. Tải file ZIP từ GitHub về Server, giải nén và gửi file .exe cho client
     zip_res = requests.get(artifact_url, headers=headers)
     work_dir = os.path.join("/tmp", f"build_{build_id}")
     os.makedirs(work_dir, exist_ok=True)
@@ -113,6 +129,9 @@ def generate():
         zip_ref.extractall(work_dir)
 
     exe_path = os.path.join(work_dir, "RobloxAnDanh_MadeByKhoa.exe")
+    if not os.path.exists(exe_path):
+        return "Lỗi: Không tìm thấy file EXE trong gói Artifact sau khi giải nén!", 500
+
     return send_file(exe_path, as_attachment=True, download_name="RobloxAnDanh_MadeByKhoa.exe")
 
 if __name__ == '__main__':
