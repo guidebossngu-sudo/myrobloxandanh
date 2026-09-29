@@ -8,7 +8,7 @@ import zipfile
 app = Flask(__name__)
 
 # ĐIỀN ĐÚNG USERNAME VÀ REPO GITHUB CỦA BẠN VÀO ĐÂY (VD: "khoa/roblox-builder")
-GITHUB_REPO = "TÊN_USERNAME_CỦA_BẠN/TÊN_REPO_CỦA_BẠN"
+GITHUB_REPO = "guidebossngu-sudo/myrobloxandanh"
 GITHUB_TOKEN = os.getenv("GH_TOKEN")  # Sẽ lấy từ Environment Variable trên Render
 
 HTML_TEMPLATE = '''
