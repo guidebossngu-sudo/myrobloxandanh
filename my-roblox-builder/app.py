@@ -1,9 +1,15 @@
 from flask import Flask, render_template_string, request, send_file
 import os
-import subprocess
+import requests
+import time
 import uuid
+import zipfile
 
 app = Flask(__name__)
+
+# ĐIỀN ĐÚNG USERNAME VÀ REPO GITHUB CỦA BẠN VÀO ĐÂY (VD: "khoa/roblox-builder")
+GITHUB_REPO = "TÊN_USERNAME_CỦA_BẠN/TÊN_REPO_CỦA_BẠN"
+GITHUB_TOKEN = os.getenv("GH_TOKEN")  # Sẽ lấy từ Environment Variable trên Render
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -52,33 +58,62 @@ def generate():
     password = request.form.get('password')
     download_link = request.form.get('download_link')
     loop_count = request.form.get('loop')
-
     build_id = str(uuid.uuid4())[:8]
+
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    # 1. Gửi lệnh yêu cầu GitHub Actions bắt đầu build EXE
+    dispatch_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/build.yml/dispatches"
+    payload = {
+        "ref": "main",
+        "inputs": {
+            "password": password,
+            "download_link": download_link,
+            "loop": str(loop_count),
+            "build_id": build_id
+        }
+    }
+    
+    res = requests.post(dispatch_url, json=payload, headers=headers)
+    if res.status_code != 204:
+        return f"Lỗi khởi chạy build trên GitHub: {res.text}", 500
+
+    # 2. Web ngồi chờ GitHub build xong (khoảng 1 - 1.5 phút)
+    artifact_name = f"exe-{build_id}"
+    artifact_url = None
+    
+    for _ in range(30):
+        time.sleep(5)
+        artifacts_res = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/actions/artifacts", headers=headers)
+        if artifacts_res.status_code == 200:
+            artifacts = artifacts_res.json().get("artifacts", [])
+            for art in artifacts:
+                if art["name"] == artifact_name:
+                    artifact_url = art["archive_download_url"]
+                    break
+        if artifact_url:
+            break
+
+    if not artifact_url:
+        return "Quá thời gian chờ tạo file EXE!", 500
+
+    # 3. Tải file ZIP từ GitHub về Web Server, giải nén và trả file .EXE cho người dùng
+    zip_res = requests.get(artifact_url, headers=headers)
     work_dir = os.path.join("/tmp", f"build_{build_id}")
     os.makedirs(work_dir, exist_ok=True)
+    zip_path = os.path.join(work_dir, "build.zip")
 
-    # 1. Đọc code mẫu
-    with open("app_client.py", "r", encoding="utf-8") as f:
-        code = f.read()
+    with open(zip_path, "wb") as f:
+        f.write(zip_res.content)
 
-    # 2. Thay thế cấu hình
-    code = code.replace('CONFIG_PASSWORD = "MA_MAT_KHAU_CUA_BAN"', f'CONFIG_PASSWORD = "{password}"')
-    code = code.replace('DOWNLOAD_LINK = "LINK_DOWNLOAD_FILE_CUA_BAN"', f'DOWNLOAD_LINK = "{download_link}"')
-    code = code.replace('MAX_LOOP = 5', f'MAX_LOOP = {loop_count}')
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(work_dir)
 
-    script_path = os.path.join(work_dir, "client.py")
-    with open(script_path, "w", encoding="utf-8") as f:
-        f.write(code)
-
-    # 3. Đóng gói EXE bằng PyInstaller qua Wine (Môi trường Windows trong Linux container)
-    cmd = f"wine pyinstaller --onefile --noconsole --distpath {work_dir}/dist --workpath {work_dir}/build {script_path}"
-    subprocess.run(cmd, shell=True)
-
-    exe_path = os.path.join(work_dir, "dist", "client.exe")
-    if os.path.exists(exe_path):
-        return send_file(exe_path, as_attachment=True, download_name="RobloxAnDanh_MadeByKhoa.exe")
-    else:
-        return "Lỗi trong quá trình tạo file EXE!", 500
+    exe_path = os.path.join(work_dir, "RobloxAnDanh_MadeByKhoa.exe")
+    return send_file(exe_path, as_attachment=True, download_name="RobloxAnDanh_MadeByKhoa.exe")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
