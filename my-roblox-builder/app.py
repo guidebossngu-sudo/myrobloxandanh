@@ -6,9 +6,9 @@ import zipfile
 
 app = Flask(__name__)
 
-# Cấu hình GitHub Repository và Token
-GITHUB_REPO = "guidebossngu-sudo/myrobloxandanh"
-GITHUB_TOKEN = os.getenv("GH_TOKEN")  # Lấy từ Environment Variables trên Render
+# Lấy token và repo từ Environment Variables trên Render
+GITHUB_REPO = os.getenv("GH_REPO", "guidebossngu-sudo/myrobloxandanh")
+GITHUB_TOKEN = os.getenv("GH_TOKEN")
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -16,7 +16,7 @@ HTML_TEMPLATE = '''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Roblox Custom App Generator</title>
+    <title>Roblox Client Generator</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
         .box { background: #1e293b; padding: 30px; border-radius: 12px; width: 100%; max-width: 420px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; text-align: center; }
@@ -34,18 +34,18 @@ HTML_TEMPLATE = '''
 </head>
 <body>
     <div class="box">
-        <h2>Tạo App Client</h2>
+        <h2>Roblox Client Generator</h2>
         <form id="buildForm">
-            <label>Mật Khẩu App</label>
+            <label>Mật Khẩu Xác Thực App</label>
             <input type="password" id="password" placeholder="Nhập mật khẩu..." required>
 
-            <label>Link Download File</label>
-            <input type="url" id="download_link" placeholder="https://example.com/file.zip" required>
+            <label>Link Download File (.exe)</label>
+            <input type="url" id="download_link" placeholder="https://example.com/file.exe" required>
 
-            <label>Số Lần Loop</label>
+            <label>Số Lần Lặp (Loop)</label>
             <input type="number" id="loop" min="1" value="1" required>
 
-            <button type="submit" id="submitBtn">tai roblox an danh made by khoa</button>
+            <button type="submit" id="submitBtn">Tạo File EXE</button>
         </form>
 
         <div class="loader" id="loader"></div>
@@ -78,15 +78,15 @@ HTML_TEMPLATE = '''
                 const data = await res.json();
 
                 if (res.ok) {
-                    status.innerText = "Đã nhận lệnh! Máy ảo Windows đang khởi động để build EXE...";
+                    status.innerText = "Đã khởi tạo! Đang chờ GitHub Actions đóng gói file EXE...";
                     checkArtifact(data.build_id);
                 } else {
-                    status.innerText = "Lỗi: " + (data.error || "Không thể gửi lệnh");
+                    status.innerText = "Lỗi: " + (data.error || "Không thể khởi tạo lệnh");
                     btn.disabled = false;
                     loader.style.display = 'none';
                 }
             } catch (err) {
-                status.innerText = "Lỗi kết nối tới Server!";
+                status.innerText = "Lỗi kết nối tới Render Server!";
                 btn.disabled = false;
                 loader.style.display = 'none';
             }
@@ -100,7 +100,7 @@ HTML_TEMPLATE = '''
 
             const interval = setInterval(async () => {
                 count++;
-                status.innerText = `Đang build file .EXE trên GitHub... (${count * 5} giây)`;
+                status.innerText = `Đang đóng gói file .EXE trên GitHub... (${count * 5}s)`;
 
                 try {
                     const res = await fetch(`/check-status/${buildId}`);
@@ -109,15 +109,15 @@ HTML_TEMPLATE = '''
                     if (data.status === 'success') {
                         clearInterval(interval);
                         loader.style.display = 'none';
-                        status.innerHTML = `<a href="${data.url}" target="_blank" style="color:#4ade80;font-weight:bold;font-size:16px;">Click vào đây để TẢI FILE EXE</a>`;
+                        status.innerHTML = `<a href="${data.url}" target="_blank" style="color:#4ade80;font-weight:bold;font-size:16px;">TẢI FILE EXE VỀ MÁY</a>`;
                         btn.disabled = false;
                     }
                 } catch (e) {}
 
-                if (count >= 36) { // Tự động ngắt sau 3 phút
+                if (count >= 36) {
                     clearInterval(interval);
                     loader.style.display = 'none';
-                    status.innerText = "Quá thời gian chờ. Bạn hãy kiểm tra lại tab Actions trên GitHub!";
+                    status.innerText = "Hết thời gian chờ. Hãy kiểm tra tab Actions trên GitHub!";
                     btn.disabled = false;
                 }
             }, 5000);
@@ -160,7 +160,7 @@ def generate():
     if res.status_code == 204:
         return jsonify({"status": "started", "build_id": build_id})
     else:
-        return jsonify({"error": f"GitHub API Mã {res.status_code}: {res.text}"}), 500
+        return jsonify({"error": f"GitHub API {res.status_code}: {res.text}"}), 500
 
 @app.route('/check-status/<build_id>')
 def check_status(build_id):
@@ -175,10 +175,8 @@ def check_status(build_id):
 
     artifacts_res = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/actions/artifacts", headers=headers)
     if artifacts_res.status_code == 200:
-        artifacts = artifacts_res.json().get("artifacts", [])
-        for art in artifacts:
+        for art in artifacts_res.json().get("artifacts", []):
             if art["name"] == artifact_name:
-                # Trỏ về endpoint proxy nội bộ của Flask để tránh lỗi 401
                 return jsonify({"status": "success", "url": f"/download/{build_id}"})
 
     return jsonify({"status": "pending"})
@@ -194,10 +192,9 @@ def download_artifact(build_id):
     }
     artifact_name = f"exe-{build_id}"
 
-    # 1. Truy vấn Artifact từ GitHub API
     artifacts_res = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/actions/artifacts", headers=headers)
     if artifacts_res.status_code != 200:
-        return "Lỗi truy vấn Artifacts từ GitHub API", 500
+        return "Lỗi truy vấn GitHub API", 500
 
     artifact_url = None
     for art in artifacts_res.json().get("artifacts", []):
@@ -208,7 +205,6 @@ def download_artifact(build_id):
     if not artifact_url:
         return "Không tìm thấy file build!", 404
 
-    # 2. Tải ZIP về Server Render
     zip_res = requests.get(artifact_url, headers=headers)
     if zip_res.status_code != 200:
         return "Không thể tải file từ GitHub API", 500
@@ -220,13 +216,12 @@ def download_artifact(build_id):
     with open(zip_path, "wb") as f:
         f.write(zip_res.content)
 
-    # 3. Giải nén ZIP và gửi trực tiếp file .exe cho người dùng
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(work_dir)
 
     exe_path = os.path.join(work_dir, "RobloxAnDanh_MadeByKhoa.exe")
     if not os.path.exists(exe_path):
-        return "Lỗi: Không tìm thấy file EXE sau khi giải nén", 500
+        return "Lỗi: Không tìm thấy file EXE sau giải nén", 500
 
     return send_file(exe_path, as_attachment=True, download_name="RobloxAnDanh_MadeByKhoa.exe")
 
