@@ -1,4 +1,4 @@
-name: Build Client EXE
+name: Build Executable
 
 on:
   workflow_dispatch:
@@ -13,38 +13,54 @@ on:
         description: 'Loop Count'
         required: true
       build_id:
-        description: 'Unique Build ID'
+        description: 'Build ID'
         required: true
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install PyInstaller & Requests
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller requests
 
-      - name: Inject Configuration
+      - name: Inject Variables and Build EXE
         shell: powershell
         run: |
-          $code = Get-Content app_client.py -Raw -Encoding UTF8
-          $code = $code -replace 'CONFIG_PASSWORD = "MA_MAT_KHAU_CUA_BAN"', 'CONFIG_PASSWORD = "${{ github.event.inputs.password }}"'
-          $code = $code -replace 'DOWNLOAD_LINK = "LINK_DOWNLOAD_FILE_CUA_BAN"', 'DOWNLOAD_LINK = "${{ github.event.inputs.download_link }}"'
-          $code = $code -replace 'MAX_LOOP = 5', 'MAX_LOOP = ${{ github.event.inputs.loop }}'
-          Set-Content -Path client_build.py -Value $code -Encoding UTF8
+          # 1. Tự động xác định đường dẫn file app_client.py
+          $targetFile = "app_client.py"
+          if (-not (Test-Path $targetFile)) {
+              if (Test-Path "my-roblox-builder/app_client.py") {
+                  $targetFile = "my-roblox-builder/app_client.py"
+              } else {
+                  Write-Error "Khong tim thay file app_client.py o thu muc goc hoac trong my-roblox-builder!"
+                  exit 1
+              }
+          }
 
-      - name: Build EXE with PyInstaller
-        run: |
-          pyinstaller --onefile --noconsole --name="RobloxAnDanh_MadeByKhoa" client_build.py
+          # 2. Đọc nội dung file app_client.py
+          $code = Get-Content $targetFile -Raw -Encoding UTF8
+
+          # 3. Thay thế các biến cấu hình bằng dữ liệu truyền từ Web
+          $code = $code -replace 'APP_PASSWORD\s*=\s*".*?"', 'APP_PASSWORD = "${{ github.event.inputs.password }}"'
+          $code = $code -replace 'DOWNLOAD_LINK\s*=\s*".*?"', 'DOWNLOAD_LINK = "${{ github.event.inputs.download_link }}"'
+          $code = $code -replace 'LOOP_COUNT\s*=\s*\d+', 'LOOP_COUNT = ${{ github.event.inputs.loop }}'
+
+          # 4. Ghi đè file tạm chuẩn bị build
+          Set-Content -Path "app_client_ready.py" -Value $code -Encoding UTF8
+
+          # 5. Đóng gói thành file EXE đơn bằng PyInstaller
+          pyinstaller --onefile --noconsole --name "RobloxAnDanh_MadeByKhoa" app_client_ready.py
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
