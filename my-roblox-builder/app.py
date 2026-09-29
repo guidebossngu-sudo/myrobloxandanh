@@ -1,7 +1,8 @@
-from flask import Flask, render_template_string, request, jsonify
+from flask import Flask, render_template_string, request, jsonify, send_file
 import os
 import requests
 import uuid
+import zipfile
 
 app = Flask(__name__)
 
@@ -177,9 +178,57 @@ def check_status(build_id):
         artifacts = artifacts_res.json().get("artifacts", [])
         for art in artifacts:
             if art["name"] == artifact_name:
-                return jsonify({"status": "success", "url": art["archive_download_url"]})
+                # Trỏ về endpoint proxy nội bộ của Flask để tránh lỗi 401
+                return jsonify({"status": "success", "url": f"/download/{build_id}"})
 
     return jsonify({"status": "pending"})
+
+@app.route('/download/<build_id>')
+def download_artifact(build_id):
+    if not GITHUB_TOKEN:
+        return "Lỗi Server: Chưa cấu hình GH_TOKEN", 500
+
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN.strip()}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    artifact_name = f"exe-{build_id}"
+
+    # 1. Truy vấn Artifact từ GitHub API
+    artifacts_res = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/actions/artifacts", headers=headers)
+    if artifacts_res.status_code != 200:
+        return "Lỗi truy vấn Artifacts từ GitHub API", 500
+
+    artifact_url = None
+    for art in artifacts_res.json().get("artifacts", []):
+        if art["name"] == artifact_name:
+            artifact_url = art["archive_download_url"]
+            break
+
+    if not artifact_url:
+        return "Không tìm thấy file build!", 404
+
+    # 2. Tải ZIP về Server Render
+    zip_res = requests.get(artifact_url, headers=headers)
+    if zip_res.status_code != 200:
+        return "Không thể tải file từ GitHub API", 500
+
+    work_dir = os.path.join("/tmp", f"build_{build_id}")
+    os.makedirs(work_dir, exist_ok=True)
+    zip_path = os.path.join(work_dir, "build.zip")
+
+    with open(zip_path, "wb") as f:
+        f.write(zip_res.content)
+
+    # 3. Giải nén ZIP và gửi trực tiếp file .exe cho người dùng
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(work_dir)
+
+    exe_path = os.path.join(work_dir, "RobloxAnDanh_MadeByKhoa.exe")
+    if not os.path.exists(exe_path):
+        return "Lỗi: Không tìm thấy file EXE sau khi giải nén", 500
+
+    return send_file(exe_path, as_attachment=True, download_name="RobloxAnDanh_MadeByKhoa.exe")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
