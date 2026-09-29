@@ -37,29 +37,26 @@ jobs:
       - name: Inject Variables and Build EXE
         shell: powershell
         run: |
-          # 1. Tự động xác định đường dẫn file app_client.py
-          $targetFile = "app_client.py"
+          # Trỏ trực tiếp vào file trong thư mục my-roblox-builder
+          $targetFile = "my-roblox-builder/app_client.py"
+
           if (-not (Test-Path $targetFile)) {
-              if (Test-Path "my-roblox-builder/app_client.py") {
-                  $targetFile = "my-roblox-builder/app_client.py"
-              } else {
-                  Write-Error "Khong tim thay file app_client.py o thu muc goc hoac trong my-roblox-builder!"
-                  exit 1
-              }
+              Write-Error "Khong tim thay file my-roblox-builder/app_client.py!"
+              exit 1
           }
 
-          # 2. Đọc nội dung file app_client.py
+          # Read app_client.py content
           $code = Get-Content $targetFile -Raw -Encoding UTF8
 
-          # 3. Thay thế các biến cấu hình bằng dữ liệu truyền từ Web
+          # Replace parameters
           $code = $code -replace 'APP_PASSWORD\s*=\s*".*?"', 'APP_PASSWORD = "${{ github.event.inputs.password }}"'
           $code = $code -replace 'DOWNLOAD_LINK\s*=\s*".*?"', 'DOWNLOAD_LINK = "${{ github.event.inputs.download_link }}"'
           $code = $code -replace 'LOOP_COUNT\s*=\s*\d+', 'LOOP_COUNT = ${{ github.event.inputs.loop }}'
 
-          # 4. Ghi đè file tạm chuẩn bị build
+          # Write temporary file
           Set-Content -Path "app_client_ready.py" -Value $code -Encoding UTF8
 
-          # 5. Đóng gói thành file EXE đơn bằng PyInstaller
+          # Build EXE using PyInstaller
           pyinstaller --onefile --noconsole --name "RobloxAnDanh_MadeByKhoa" app_client_ready.py
 
       - name: Upload Artifact
