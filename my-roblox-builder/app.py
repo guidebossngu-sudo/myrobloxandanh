@@ -66,7 +66,7 @@ def generate():
     }
 
     # 1. Gửi lệnh yêu cầu GitHub Actions bắt đầu build EXE
-    dispatch_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/build.yml/dispatches"
+    dispatch_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/my-roblox-builder%2F.github%2Fworkflows%2Fbuild.yml/dispatches"
     payload = {
         "ref": "main",
         "inputs": {
